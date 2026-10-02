@@ -1,0 +1,88 @@
+@namespace Container.Components.Pages.Kokpit
+@inject KokpitDataService Data
+@inject KokpitFilterState Filters
+
+@* Cockpit shell: header, tab bar, filter bar. Every page wraps its content in <KokpitLayout>.
+   It is a normal component (not a LayoutComponentBase) so it works with both global and per-page
+   InteractiveServer render modes, and the host app's own MainLayout/menu stays untouched. *@
+
+<HeadContent>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" />
+</HeadContent>
+
+<div class="kokpit">
+    <header class="top">
+        <div class="top-in">
+            <div class="brand">
+                <h1>CAE KOKPİT <span>· İç Denetim Başkanı</span></h1>
+                <img class="d3" src="img/kokpit/d3-white.png" alt="D³ Denetim · Danışmanlık · Dönüşüm" />
+            </div>
+
+            <div class="live @(Data.IsStale ? "stale" : "")"
+                 title="@(Data.LastError is null ? "Veriler arka planda otomatik yenilenir." : $"Son yenileme başarısız: {Data.LastError}")">
+                <span class="dot"></span>
+                @if (!Data.Current.IsLoaded)
+                {
+                    <span>Veri yükleniyor…</span>
+                }
+                else if (Data.IsStale)
+                {
+                    <span>Veri güncel değil · son yükleme @Data.Current.LoadedAt.ToString("HH:mm")</span>
+                }
+                else
+                {
+                    <span>Son güncelleme @Data.Current.LoadedAt.ToString("HH:mm")</span>
+                }
+            </div>
+        </div>
+
+        <nav class="tabs" aria-label="Kokpit sekmeleri">
+            <NavLink class="tab" href="kokpit" Match="NavLinkMatch.All">Genel Bakış</NavLink>
+            <NavLink class="tab" href="kokpit/audit-plan">Denetim Planı</NavLink>
+            <NavLink class="tab" href="kokpit/findings">Bulgular</NavLink>
+            <NavLink class="tab" href="kokpit/report-tracking">Rapor Takibi</NavLink>
+            <AuthorizeView Policy="@KokpitPolicies.HrViewer">
+                <NavLink class="tab" href="kokpit/human-resources">İnsan Kaynakları</NavLink>
+            </AuthorizeView>
+            <NavLink class="tab" href="kokpit/capacity-quality">Kapasite &amp; Kalite</NavLink>
+        </nav>
+    </header>
+
+    <div class="filter-bar">
+        <span class="label">Filtreler</span>
+        @if (!Filters.HasAny)
+        {
+            <span class="hint">Filtre yok. Bir grafiğe tıklayarak filtreleyin.</span>
+        }
+        else
+        {
+            @foreach (var (dimension, values) in Filters.Selections)
+            {
+                @foreach (var value in values)
+                {
+                    <span class="chip">
+                        <b>@DisplayNames.Dimension(dimension):</b> @DisplayNames.Value(dimension, value)
+                        <button type="button" aria-label="Filtreyi kaldır" @onclick="() => Filters.Remove(dimension, value)">×</button>
+                    </span>
+                }
+            }
+            <button type="button" class="clear" @onclick="Filters.Clear">Tümünü temizle</button>
+        }
+        <span class="spacer"></span>
+        <DxCheckBox T="bool" CheckType="CheckType.Switch"
+                    Checked="@Filters.MultiSelect"
+                    CheckedChanged="@((bool value) => Filters.SetMultiSelect(value))">
+            Çoklu seçim
+        </DxCheckBox>
+    </div>
+
+    <main class="content">
+        @ChildContent
+    </main>
+</div>
+
+@code {
+    // No event subscriptions needed: the page re-renders on every filter/data change,
+    // which re-renders this component through ChildContent.
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

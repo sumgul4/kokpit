@@ -1,0 +1,83 @@
+@page "/kokpit/capacity-quality"
+@attribute [Authorize(Policy = KokpitPolicies.Viewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+
+<PageTitle>Kapasite &amp; Kalite · CAE Kokpit</PageTitle>
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            <section class="card span-7">
+                <header class="card-head"><div><h3>Kaynak kullanımı</h3><p class="sub">Planlanan ve gerçekleşen adam-gün, alan bazında</p></div></header>
+                <DxChart T="StackedValue" Data="@_manDays" Height="280px" Width="100%" SeriesClick="@ToggleStacked(FilterDimension.Area, null)">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    <DxChartBarSeries T="StackedValue" TArgument="string" TValue="double" Name="Planlanan"
+                                      Filter="@(v => v.Series == "Planlanan")" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                      Color="@ChartPalette.Stage(AuditStages.Fieldwork)" />
+                    <DxChartBarSeries T="StackedValue" TArgument="string" TValue="double" Name="Gerçekleşen"
+                                      Filter="@(v => v.Series == "Gerçekleşen")" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                      Color="@ChartPalette.Accent" />
+                </DxChart>
+            </section>
+
+            <section class="card span-5">
+                <header class="card-head"><div><h3>Denetlenen birim memnuniyeti</h3><p class="sub">Denetim sonrası anket, aylık ortalama (1–5)</p></div></header>
+                <DxChart T="MonthlyValue" Data="@_survey" Height="280px" Width="100%">
+                    <DxChartLegend Visible="false" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Memnuniyet"
+                                       ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)" Color="@ChartPalette.Accent" />
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Yıllık eğitim saati</h3><p class="sub">Hedef: kişi başı @Options.TrainingHoursTarget saat; hedef altı turuncu</p></div></header>
+                <DxChart T="CategoryValue" Data="@_training" Height="260px" Width="100%"
+                         CustomizeSeriesPoint="@DimCategory(null, ChartPalette.Good, TrainingColor)">
+                    <DxChartLegend Visible="false" />
+                    <DxChartBarSeries T="CategoryValue" TArgument="string" TValue="double" Name="Kişi"
+                                      ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)" Color="@ChartPalette.Good">
+                        <DxChartSeriesLabel Visible="true" />
+                    </DxChartBarSeries>
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Mesleki sertifikalar</h3><p class="sub">Sertifika sahibi müfettiş sayısı</p></div></header>
+                <DxChart T="CategoryValue" Data="@_certificates" Height="260px" Width="100%">
+                    <DxChartLegend Visible="false" />
+                    <DxChartBarSeries T="CategoryValue" TArgument="string" TValue="double" Name="Sertifika sahibi"
+                                      ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)" Color="@ChartPalette.Accent">
+                        <DxChartSeriesLabel Visible="true" />
+                    </DxChartBarSeries>
+                </DxChart>
+            </section>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private IReadOnlyList<StackedValue> _manDays = [];
+    private IReadOnlyList<MonthlyValue> _survey = [];
+    private IReadOnlyList<CategoryValue> _training = [];
+    private IReadOnlyList<CategoryValue> _certificates = [];
+
+    protected override void BuildViewModel()
+    {
+        _manDays = CapacityCalculator.ManDaysByArea(View);
+        _survey = CapacityCalculator.SurveyTrend(View);
+        _training = CapacityCalculator.TrainingHistogram(View);
+        _certificates = CapacityCalculator.Certificates(View);
+    }
+
+    // Buckets whose upper edge is at or below the target are shown in the warning colour.
+    private System.Drawing.Color TrainingColor(CategoryValue bucket) =>
+        int.TryParse(bucket.Category.Split('–', '+')[0], out var lower) && lower + 10 <= Options.TrainingHoursTarget
+            ? ChartPalette.Warning
+            : ChartPalette.Good;
+}

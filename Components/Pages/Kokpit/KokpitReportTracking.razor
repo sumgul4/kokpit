@@ -1,0 +1,108 @@
+@page "/kokpit/report-tracking"
+@attribute [Authorize(Policy = KokpitPolicies.Viewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+
+<PageTitle>Rapor Takibi · CAE Kokpit</PageTitle>
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            <section class="card span-12">
+                <header class="card-head"><div><h3>Rapor zaman tüneli</h3>
+                    <p class="sub">Adıma tıklayarak o adımdaki raporları filtreleyin. Raporlar ilk adımlar atlanarak doğrudan sonraki adımlara yüklenebilir.</p></div></header>
+                @ReportTimeline(_steps, _skippedRatio)
+            </section>
+
+            <section class="card span-7">
+                <header class="card-head"><div><h3>Adım bazında ortalama bekleme</h3><p class="sub">Gün cinsinden; kare işaret: SLA</p></div></header>
+                @* Bars: one series per SLA status (colour + legend from the series). Marker: SLA days. *@
+                <DxChart T="StepStat" Data="@_steps" Height="300px" Width="100%" SeriesClick="@OnStepClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var (status, label) in StatusSeries)
+                    {
+                        var st = status;
+                        <DxChartStackedBarSeries T="StepStat" TArgument="string" TValue="double" Name="@label"
+                                                 Filter="@(s => s.Status == st)" ArgumentField="@(s => s.StepCode)" ValueField="@(s => Math.Round(s.AverageDays, 1))"
+                                                 Color="@ChartPalette.Sla(st)" />
+                    }
+                    <DxChartScatterSeries T="StepStat" TArgument="string" TValue="double" Name="SLA (gün)"
+                                          ArgumentField="@(s => s.StepCode)" ValueField="@(s => (double)s.SlaDays)" Color="@ChartPalette.Ink">
+                        <DxChartSeriesPoint Symbol="ChartPointSymbol.Square" Size="9" />
+                    </DxChartScatterSeries>
+                </DxChart>
+            </section>
+
+            <section class="card span-5">
+                <header class="card-head"><div><h3>Rapor çevrim süresi</h3><p class="sub">Yayımlanan raporlarda ilk adımdan dağıtıma, aylık ortalama (gün)</p></div></header>
+                <DxChart T="MonthlyValue" Data="@_cycle" Height="300px" Width="100%">
+                    <DxChartLegend Visible="false" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Ortalama çevrim süresi"
+                                       ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)" Color="@ChartPalette.Accent" />
+                    <DxChartValueAxis>
+                        <DxChartConstantLine Value="@((double)Options.CycleTimeTargetDays)">
+                            <DxChartConstantLineLabel Text="@($"Hedef {Options.CycleTimeTargetDays} g")" />
+                        </DxChartConstantLine>
+                    </DxChartValueAxis>
+                </DxChart>
+            </section>
+
+            <section class="card span-12">
+                <header class="card-head"><div><h3>SLA'ya göre en uzun bekleyen raporlar</h3></div></header>
+                <DxGrid Data="@_waiting" PageSize="8">
+                    <Columns>
+                        <DxGridDataColumn FieldName="@nameof(WaitingReport.ReportId)" Caption="Rapor" Width="110px" />
+                        <DxGridDataColumn FieldName="@nameof(WaitingReport.AuditName)" Caption="Denetim" />
+                        <DxGridDataColumn FieldName="@nameof(WaitingReport.StepCode)" Caption="Adım" Width="80px" />
+                        <DxGridDataColumn FieldName="@nameof(WaitingReport.WaitingDays)" Caption="Bekleme (gün)" Width="130px" />
+                        <DxGridDataColumn FieldName="@nameof(WaitingReport.SlaDays)" Caption="SLA (gün)" Width="160px">
+                            <CellDisplayTemplate>
+                                @{ var row = (WaitingReport)context.DataItem; }
+                                <span class="pill @PillClass(row.Status)">@(row.Status == SlaStatus.OnTime ? "✓" : "▲") @row.SlaDays g</span>
+                            </CellDisplayTemplate>
+                        </DxGridDataColumn>
+                    </Columns>
+                </DxGrid>
+            </section>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private IReadOnlyList<StepStat> _steps = [];
+    private double _skippedRatio;
+    private IReadOnlyList<MonthlyValue> _cycle = [];
+    private IReadOnlyList<WaitingReport> _waiting = [];
+
+    private static readonly (SlaStatus Status, string Label)[] StatusSeries =
+    [
+        (SlaStatus.OnTime, "SLA içinde"),
+        (SlaStatus.Warning, "SLA %25'e kadar aşıldı"),
+        (SlaStatus.Critical, "SLA %25'ten fazla aşıldı")
+    ];
+
+    protected override void BuildViewModel()
+    {
+        _steps = ReportFlowCalculator.StepStats(View, Options);
+        _skippedRatio = ReportFlowCalculator.SkippedStepRatio(View);
+        _cycle = ReportFlowCalculator.CycleTimeByMonth(View);
+        _waiting = ReportFlowCalculator.LongestWaiting(View, Options);
+    }
+
+    private void OnStepClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<StepStat>(e) is { } s) Filters.Toggle(FilterDimension.ReportStep, s.StepCode);
+    }
+
+    private static string PillClass(SlaStatus status) => status switch
+    {
+        SlaStatus.OnTime => "ok",
+        SlaStatus.Warning => "warn",
+        _ => "crit"
+    };
+}

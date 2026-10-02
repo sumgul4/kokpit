@@ -1,0 +1,271 @@
+@namespace Container.Components.Pages.Kokpit
+@implements IDisposable
+
+@* Base class of every cockpit page (pages use @inherits KokpitPageBase). Holds, in one place:
+     1. the plumbing: read the shared snapshot, apply filters, rebuild on filter/data change;
+     2. click and dimming handlers shared by the DevExpress charts;
+     3. the custom widgets that DevExpress has no equivalent for (KPI row, report timeline,
+        heatmap, stage boxes, attention list), as RenderFragments: write @KpiRow(_kpi) in a page.
+   This component renders nothing itself. *@
+
+@code {
+    // [Inject] properties (not @inject) so derived pages can use them: @inject generates private members.
+    [Inject] protected KokpitDataService Data { get; set; } = default!;
+    [Inject] protected KokpitFilterState Filters { get; set; } = default!;
+    [Inject] private IOptions<KokpitOptions> OptionsAccessor { get; set; } = default!;
+
+    protected KokpitOptions Options => OptionsAccessor.Value;
+    protected KokpitView View { get; private set; } = KokpitView.Empty;
+    protected bool IsLoading => !Data.Current.IsLoaded;
+
+    // ------------------------------------------------------------------ plumbing
+
+    protected override void OnInitialized()
+    {
+        Filters.Changed += OnFiltersChanged;
+        Data.SnapshotUpdated += OnSnapshotUpdated;
+        Rebuild();
+    }
+
+    /// <summary>Pages override this to compute their chart rows once per change (never inside markup).</summary>
+    protected virtual void BuildViewModel() { }
+
+    private void Rebuild()
+    {
+        View = KokpitView.Create(Data.Current, Filters);
+        BuildViewModel();
+    }
+
+    private void OnFiltersChanged()
+    {
+        Rebuild();
+        StateHasChanged();
+    }
+
+    // Raised on the background worker thread → marshal to this circuit.
+    private void OnSnapshotUpdated(KokpitSnapshot _) => InvokeAsync(() => { Rebuild(); StateHasChanged(); });
+
+    public void Dispose()
+    {
+        Filters.Changed -= OnFiltersChanged;
+        Data.SnapshotUpdated -= OnSnapshotUpdated;
+    }
+
+    // ------------------------------------------------------------------ shared chart handlers
+
+    /// <summary>Stacked bar Area × Stage: dim unselected, click = filter area + stage.</summary>
+    protected void CustomizeStagePoint(ChartSeriesPointCustomizationSettings s)
+    {
+        if (ChartInterop.DataItem<StackedValue>(s) is { } v &&
+            !(Filters.IsVisible(FilterDimension.Area, v.Argument) && Filters.IsVisible(FilterDimension.Stage, v.Series)))
+            s.PointAppearance.Color = ChartPalette.Dim(ChartPalette.Stage(v.Series));
+    }
+
+    protected void OnStageClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<StackedValue>(e) is { } v)
+            Filters.TogglePair(FilterDimension.Area, v.Argument, FilterDimension.Stage, v.Series);
+    }
+
+    /// <summary>Stacked bar AgingBucket × Risk.</summary>
+    protected void CustomizeAgingPoint(ChartSeriesPointCustomizationSettings s)
+    {
+        if (ChartInterop.DataItem<StackedValue>(s) is { } v &&
+            !(Filters.IsVisible(FilterDimension.AgingBucket, v.Argument) && Filters.IsVisible(FilterDimension.Risk, v.Series)))
+            s.PointAppearance.Color = ChartPalette.Dim(ChartPalette.Risk(v.Series));
+    }
+
+    protected void OnAgingClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<StackedValue>(e) is { } v) Filters.Toggle(FilterDimension.AgingBucket, v.Argument);
+    }
+
+    /// <summary>Headcount waterfall (range bar).</summary>
+    protected void CustomizeWaterfallPoint(ChartSeriesPointCustomizationSettings s)
+    {
+        if (ChartInterop.DataItem<WaterfallStep>(s) is not { } step) return;
+        var color = step.FilterValue switch
+        {
+            null => ChartPalette.Accent,
+            MovementTypes.Joined => ChartPalette.Series3,
+            _ => ChartPalette.Series2
+        };
+        s.PointAppearance.Color = step.FilterValue is null || Filters.IsVisible(FilterDimension.MovementType, step.FilterValue)
+            ? color : ChartPalette.Dim(color);
+    }
+
+    protected void OnWaterfallClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<WaterfallStep>(e) is { FilterValue: { } type }) Filters.Toggle(FilterDimension.MovementType, type);
+    }
+
+    /// <summary>
+    /// Any chart bound to CategoryValue rows: colour (optionally per row) + dim by one dimension.
+    /// Usage: CustomizeSeriesPoint="@DimCategory(FilterDimension.Area, ChartPalette.Warning)"
+    /// </summary>
+    protected Action<ChartSeriesPointCustomizationSettings> DimCategory(
+        FilterDimension? dimension, System.Drawing.Color color, Func<CategoryValue, System.Drawing.Color>? colorOf = null) =>
+        s =>
+        {
+            if (ChartInterop.DataItem<CategoryValue>(s) is not { } c) return;
+            var baseColor = colorOf?.Invoke(c) ?? color;
+            var visible = dimension is not { } dim || Filters.IsVisible(dim, c.FilterValue);
+            s.PointAppearance.Color = visible ? baseColor : ChartPalette.Dim(baseColor);
+        };
+
+    /// <summary>Usage: SeriesClick="@ToggleCategory(FilterDimension.Area)"</summary>
+    protected Action<ChartSeriesClickEventArgs> ToggleCategory(FilterDimension dimension) =>
+        e =>
+        {
+            if (ChartInterop.DataItem<CategoryValue>(e) is { FilterValue: { } value }) Filters.Toggle(dimension, value);
+        };
+
+    /// <summary>Stacked/grouped bars over StackedValue where argument and/or series are filter dimensions.</summary>
+    protected Action<ChartSeriesClickEventArgs> ToggleStacked(FilterDimension? argument, FilterDimension? series) =>
+        e =>
+        {
+            if (ChartInterop.DataItem<StackedValue>(e) is not { } v) return;
+            if (argument is { } a && series is { } sr) Filters.TogglePair(a, v.Argument, sr, v.Series);
+            else if (argument is { } onlyA) Filters.Toggle(onlyA, v.Argument);
+            else if (series is { } onlyS) Filters.Toggle(onlyS, v.Series);
+        };
+
+    // ------------------------------------------------------------------ custom widgets
+
+    protected RenderFragment KpiRow(KpiSummary k) =>
+        @<div class="kpis">
+            <div class="kpi">
+                <div class="k">Plan gerçekleşme</div>
+                <div class="v">@Formatting.Percent(k.PlanCompletionRatio)</div>
+                <div class="meter"><i style="width:@((Math.Clamp(k.PlanCompletionRatio, 0, 1) * 100).ToString("0", CultureInfo.InvariantCulture))%"></i></div>
+                <div class="c">@k.IssuedDueCount / @k.DueCount vadesi gelen denetim</div>
+            </div>
+            <div class="kpi">
+                <div class="k">Devam eden denetim</div>
+                <div class="v">@k.OngoingAudits <small>denetim</small></div>
+                <div class="c">
+                    @if (k.DelayedAudits > 0) { <span class="pill warn">▲ @k.DelayedAudits gecikmeli</span> }
+                    else { <span class="pill ok">✓ Gecikme yok</span> }
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="k">Açık bulgu</div>
+                <div class="v">@k.OpenFindings</div>
+                <div class="c"><span class="pill crit">● @k.OpenHighRiskFindings yüksek risk</span></div>
+            </div>
+            <div class="kpi">
+                <div class="k">Vadesi geçmiş aksiyon</div>
+                <div class="v">@k.OverdueActions</div>
+                <div class="c">
+                    @if (k.OverdueOver90 > 0) { <span class="pill crit">▲ @k.OverdueOver90 tanesi 90+ gün</span> }
+                    else { <span class="pill ok">✓ 90+ gün yok</span> }
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="k">Ort. rapor çevrim süresi</div>
+                <div class="v">@(k.AverageCycleDays is { } d ? Formatting.Number(d) : "–") <small>gün</small></div>
+                <div class="c">
+                    Hedef @k.CycleTargetDays gün
+                    @if (k.AverageCycleDays is { } days)
+                    {
+                        <span class="pill @(days <= k.CycleTargetDays ? "ok" : "crit")">
+                            @(days <= k.CycleTargetDays ? "✓ hedefte" : $"▲ {Formatting.Number(days - k.CycleTargetDays)} g fazla")
+                        </span>
+                    }
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="k">Kadro</div>
+                <div class="v">@k.Headcount <small>kişi</small></div>
+                <div class="c">+@k.Joined gelen · −@k.Left giden · net @((k.Joined - k.Left).ToString("+0;−0;0"))</div>
+            </div>
+        </div>;
+
+    /// <summary>14-step report approval flow. Click a step = filter by step.</summary>
+    protected RenderFragment ReportTimeline(IReadOnlyList<StepStat> steps, double skippedRatio) =>
+        @<div>
+            <div class="tunnel" role="group" aria-label="Rapor zaman tüneli">
+                @foreach (var step in steps)
+                {
+                    var selected = Filters.IsActive(FilterDimension.ReportStep) && Filters.IsVisible(FilterDimension.ReportStep, step.StepCode);
+                    var width = Math.Min(100, step.Ratio / 1.6 * 100).ToString("0", CultureInfo.InvariantCulture);
+                    <button type="button" class="step @(step.WaitingCount > 0 ? "has" : "")" aria-pressed="@selected"
+                            title="@($"{step.StepName}: {step.WaitingCount} rapor bekliyor, ortalama {Formatting.Number(step.AverageDays, 1)} gün (SLA {step.SlaDays} gün)")"
+                            @onclick="() => Filters.Toggle(FilterDimension.ReportStep, step.StepCode)">
+                        <span class="wait">@if (step.WaitingCount > 0) { <b>@step.WaitingCount</b> <text>rapor</text> } else { <text>—</text> }</span>
+                        <span class="node">@step.StepCode</span>
+                        <span class="name">@step.StepName</span>
+                        <span class="avg">ort. @(step.SampleSize > 0 ? Formatting.Number(step.AverageDays, 1) : "–") g<br />SLA @step.SlaDays g</span>
+                        <span class="bar"><i style="width:@width%;background:@ChartPalette.ToCss(ChartPalette.Sla(step.Status))"></i></span>
+                    </button>
+                }
+            </div>
+            <div class="legend-inline">
+                <span><i class="accent"></i>Şu an bu adımda rapor var</span>
+                <span><i style="background:@ChartPalette.ToCss(ChartPalette.Good)"></i>SLA içinde</span>
+                <span><i style="background:@ChartPalette.ToCss(ChartPalette.Warning)"></i>SLA %25'e kadar aşıldı</span>
+                <span><i style="background:@ChartPalette.ToCss(ChartPalette.Critical)"></i>SLA %25'ten fazla aşıldı</span>
+                <span>Atlanan adımla yüklenen rapor: @Formatting.Percent(skippedRatio)</span>
+            </div>
+        </div>;
+
+    /// <summary>Open findings, action owner × risk (DevExpress Blazor has no heatmap). Click = filter owner + risk.</summary>
+    protected RenderFragment RiskHeatmap(IReadOnlyList<HeatmapCell> cells) =>
+        @<div>
+            <div class="heat" role="grid">
+                <div></div>
+                @foreach (var column in HeatColumns)
+                {
+                    <div class="hh">@DisplayNames.Risk(column) risk</div>
+                }
+                @foreach (var row in cells.Select(c => c.Row).Distinct())
+                {
+                    <div class="hn">@row</div>
+                    @foreach (var column in HeatColumns)
+                    {
+                        var cell = cells.FirstOrDefault(c => c.Row == row && c.Column == column);
+                        var intensity = cell?.Intensity ?? 0;
+                        var visible = Filters.IsVisible(FilterDimension.ActionOwner, row) && Filters.IsVisible(FilterDimension.Risk, column);
+                        <button type="button" class="hc"
+                                title="@($"{row} · {DisplayNames.Risk(column)} risk: {cell?.Count ?? 0} açık bulgu")"
+                                style="background:@ChartPalette.ToCss(ChartPalette.Heat(intensity));color:@(intensity > .5 ? "#ffffff" : "var(--ink)");opacity:@(visible ? "1" : ".3")"
+                                @onclick="() => Filters.TogglePair(FilterDimension.ActionOwner, row, FilterDimension.Risk, column)">
+                            @(cell is { Count: > 0 } ? cell.Count : "")
+                        </button>
+                    }
+                }
+            </div>
+            <div class="heat-legend"><span>az</span><i></i><span>çok</span></div>
+        </div>;
+
+    private static readonly string[] HeatColumns = [RiskLevels.Low, RiskLevels.Medium, RiskLevels.High];
+
+    /// <summary>One clickable box per audit stage.</summary>
+    protected RenderFragment StageBoxes(IReadOnlyList<(string Stage, int Count, int Delayed, double Share)> items) =>
+        @<div class="stages">
+            @foreach (var item in items)
+            {
+                var selected = Filters.IsActive(FilterDimension.Stage) && Filters.IsVisible(FilterDimension.Stage, item.Stage);
+                <button type="button" class="stage" aria-pressed="@selected" @onclick="() => Filters.Toggle(FilterDimension.Stage, item.Stage)">
+                    <span class="t"><i style="background:@ChartPalette.ToCss(ChartPalette.Stage(item.Stage))"></i>@item.Stage</span>
+                    <span class="n">@item.Count</span>
+                    <span class="p">@Formatting.Percent(item.Share) · @(item.Delayed > 0 ? $"{item.Delayed} gecikmeli" : "gecikme yok")</span>
+                </button>
+            }
+        </div>;
+
+    /// <summary>Rule-based deviations from all modules.</summary>
+    protected RenderFragment AttentionList(IReadOnlyList<AttentionItem> items) =>
+        @<ul class="alerts">
+            @foreach (var item in items)
+            {
+                <li>
+                    <span class="sev sev-@item.Severity.ToString().ToLowerInvariant()"></span>
+                    <div><div class="tt">@item.Title</div><div class="dd">@item.Detail</div></div>
+                    <div class="nn">@item.Value</div>
+                </li>
+            }
+        </ul>;
+
+    protected static RenderFragment Loading => @<div class="loading">Veriler yükleniyor…</div>;
+}

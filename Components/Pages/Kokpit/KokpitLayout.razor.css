@@ -1,0 +1,158 @@
+/* KokpitLayout.razor.css — all cockpit styles, scoped to the cockpit so they never leak into the host app.
+   Theme tokens live on .kokpit (not :root) for the same reason. Chart colours mirror ChartPalette in KokpitMetrics.cs. */
+
+.kokpit {
+    --font: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --ink: #12201c;
+    --ink-2: #34443f;
+    --muted: #5d6b66;
+    --line: #e2e6eb;
+    --grid: #edf0f3;
+
+    --accent: #0f6b5c;
+    --accent-soft: #dcefea;
+    --on-accent: #ffffff;
+
+    --head-bg: #0f5c4f;
+    --head-ink: #ffffff;
+    --head-muted: #b8d8d0;
+    --head-line: #1f7264;
+
+    --good: #0f8a3c;
+    --warn: #b77900;
+    --serious: #e0703f;
+    --crit: #d03b3b;
+    --low: #9aaaa5;
+
+    --heat-low: #e9f3f0;
+    --heat-high: #0f6b5c;
+
+    --radius: 6px;
+    --radius-sm: 4px;
+
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 14px;
+    min-height: 100vh;
+}
+
+.kokpit ::deep * { box-sizing: border-box; }
+
+.kokpit ::deep button { font: inherit; color: inherit; }
+.kokpit ::deep :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Header & tabs ---------- */
+.kokpit ::deep .top { position: sticky; top: 0; z-index: 20; background: var(--head-bg); color: var(--head-ink); }
+.kokpit ::deep .top-in { max-width: 1480px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.kokpit ::deep .brand { display: flex; align-items: center; gap: 14px; }
+.kokpit ::deep .brand h1 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: .08em; }
+.kokpit ::deep .brand h1 span { color: var(--head-muted); font-weight: 500; letter-spacing: .02em; }
+.kokpit ::deep .brand .d3 { height: 40px; padding-left: 16px; border-left: 1px solid var(--head-line); }
+.kokpit ::deep .live { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--head-muted); }
+.kokpit ::deep .live .dot { width: 8px; height: 8px; border-radius: 50%; background: #ffffff; }
+.kokpit ::deep .live.stale .dot { background: var(--warn); }
+.kokpit ::deep .tabs { max-width: 1480px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; overflow-x: auto; }
+.kokpit ::deep .tab { padding: 10px 14px 12px; font-weight: 600; color: var(--head-muted); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+.kokpit ::deep .tab.active { color: var(--head-ink); border-bottom-color: currentColor; }
+
+/* ---------- Filter bar ---------- */
+.kokpit ::deep .filter-bar { max-width: 1480px; margin: 0 auto; padding: 14px 20px 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 48px; }
+.kokpit ::deep .filter-bar .label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.kokpit ::deep .filter-bar .hint { font-size: 13px; color: var(--muted); }
+.kokpit ::deep .filter-bar .spacer { flex: 1; }
+.kokpit ::deep .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; }
+.kokpit ::deep .chip b { font-weight: 600; color: var(--muted); font-size: 12px; }
+.kokpit ::deep .chip button { border: 0; background: transparent; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; }
+.kokpit ::deep .clear { border: 0; background: none; color: var(--accent); font-weight: 600; cursor: pointer; }
+
+/* ---------- Page grid & cards ---------- */
+.kokpit ::deep .content { max-width: 1480px; margin: 0 auto; padding: 8px 20px 40px; }
+.kokpit ::deep .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.kokpit ::deep .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.kokpit ::deep .card-head { display: flex; justify-content: space-between; gap: 12px; }
+.kokpit ::deep .card h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.kokpit ::deep .card .sub { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+.kokpit ::deep .card .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.kokpit ::deep .span-3 { grid-column: span 3; } .kokpit ::deep .span-4 { grid-column: span 4; } .kokpit ::deep .span-5 { grid-column: span 5; }
+.kokpit ::deep .span-6 { grid-column: span 6; } .kokpit ::deep .span-7 { grid-column: span 7; } .kokpit ::deep .span-8 { grid-column: span 8; } .kokpit ::deep .span-12 { grid-column: span 12; }
+.kokpit ::deep .note, .kokpit ::deep .center-note { font-size: 12px; color: var(--muted); margin: 0; }
+.kokpit ::deep .center-note { text-align: center; }
+.kokpit ::deep .loading, .kokpit ::deep .not-authorized { padding: 40px; text-align: center; color: var(--muted); }
+.kokpit ::deep .chart-tip { font-size: 12px; line-height: 1.4; }
+
+/* ---------- KPI ---------- */
+.kokpit ::deep .kpis { grid-column: span 12; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.kokpit ::deep .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.kokpit ::deep .kpi .k { font-size: 12px; color: var(--muted); font-weight: 600; }
+.kokpit ::deep .kpi .v { font-size: 28px; font-weight: 700; }
+.kokpit ::deep .kpi .v small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.kokpit ::deep .kpi .c { font-size: 12px; color: var(--ink-2); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.kokpit ::deep .meter { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.kokpit ::deep .meter i { display: block; height: 100%; background: var(--accent); }
+.kokpit ::deep .pill { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
+.kokpit ::deep .pill.ok { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.kokpit ::deep .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.kokpit ::deep .pill.crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 12%, transparent); }
+
+/* ---------- Report timeline ---------- */
+.kokpit ::deep .tunnel { display: flex; overflow-x: auto; }
+.kokpit ::deep .step { flex: 1 0 92px; display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 4px; cursor: pointer; border-radius: var(--radius-sm); text-align: center; position: relative; }
+.kokpit ::deep .step:hover { background: var(--surface-2); }
+.kokpit ::deep .step[aria-pressed="true"] { background: var(--accent-soft); }
+.kokpit ::deep .step .wait { font-size: 11px; color: var(--muted); height: 16px; }
+.kokpit ::deep .step .node { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: var(--surface-2); border: 2px solid var(--line); z-index: 1; }
+.kokpit ::deep .step.has .node { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.kokpit ::deep .step .name { font-size: 11.5px; color: var(--ink-2); min-height: 30px; max-width: 100px; }
+.kokpit ::deep .step .avg { font-size: 11px; color: var(--muted); }
+.kokpit ::deep .step .bar { width: 70%; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.kokpit ::deep .step .bar i { display: block; height: 100%; }
+.kokpit ::deep .step::after { content: ""; position: absolute; top: 43px; left: calc(50% + 24px); width: calc(100% - 48px); height: 2px; background: var(--line); }
+.kokpit ::deep .step:last-child::after { display: none; }
+.kokpit ::deep .legend-inline { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.kokpit ::deep .legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+.kokpit ::deep .legend-inline i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.kokpit ::deep .legend-inline i.accent { background: var(--accent); border-radius: 50%; }
+
+/* ---------- Heatmap ---------- */
+.kokpit ::deep .heat { display: grid; grid-template-columns: minmax(110px, max-content) repeat(3, minmax(56px, 1fr)); gap: 2px; font-size: 12.5px; }
+.kokpit ::deep .heat .hh { font-size: 11px; color: var(--muted); text-align: center; font-weight: 600; }
+.kokpit ::deep .heat .hn { color: var(--ink-2); padding-right: 10px; display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.kokpit ::deep .heat .hc { border: 0; border-radius: 3px; height: 24px; font-weight: 600; cursor: pointer; }
+.kokpit ::deep .heat-legend { display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.kokpit ::deep .heat-legend i { width: 120px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--heat-low), var(--heat-high)); }
+
+/* ---------- Stage boxes, attention list, waterfall values ---------- */
+.kokpit ::deep .stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.kokpit ::deep .stage { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-sm); padding: 12px 14px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.kokpit ::deep .stage[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.kokpit ::deep .stage .n { font-size: 26px; font-weight: 700; }
+.kokpit ::deep .stage .t { font-size: 12px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.kokpit ::deep .stage .t i { width: 10px; height: 10px; border-radius: 2px; }
+.kokpit ::deep .stage .p { font-size: 12px; color: var(--muted); }
+.kokpit ::deep .alerts { list-style: none; margin: 0; padding: 0; }
+.kokpit ::deep .alerts li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--grid); }
+.kokpit ::deep .alerts li:last-child { border-bottom: 0; }
+.kokpit ::deep .alerts .sev { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+.kokpit ::deep .sev-critical { background: var(--crit); } .kokpit ::deep .sev-serious { background: var(--serious); } .kokpit ::deep .sev-warning { background: var(--warn); } .kokpit ::deep .sev-info { background: var(--low); }
+.kokpit ::deep .alerts .tt { font-weight: 600; font-size: 13px; }
+.kokpit ::deep .alerts .dd { font-size: 12px; color: var(--muted); }
+.kokpit ::deep .alerts .nn { font-size: 18px; font-weight: 700; }
+.kokpit ::deep .waterfall-values { display: flex; justify-content: space-around; font-size: 12px; color: var(--muted); }
+.kokpit ::deep .waterfall-values b { color: var(--ink); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1180px) {
+    .kokpit ::deep .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .kokpit ::deep .span-3, .kokpit ::deep .span-4, .kokpit ::deep .span-5, .kokpit ::deep .span-6 { grid-column: span 6; }
+    .kokpit ::deep .span-7, .kokpit ::deep .span-8 { grid-column: span 12; }
+}
+@media (max-width: 760px) {
+    .kokpit ::deep .grid > * { grid-column: span 12 !important; }
+    .kokpit ::deep .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kokpit ::deep .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

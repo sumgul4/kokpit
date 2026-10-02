@@ -1,0 +1,139 @@
+@page "/kokpit"
+@attribute [Authorize(Policy = KokpitPolicies.Viewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse bu satırı açın (tüm Kokpit sayfalarında) *@
+
+<PageTitle>Genel Bakış · CAE Kokpit</PageTitle>
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            @KpiRow(_kpi)
+
+            <section class="card span-7">
+                <header class="card-head"><div><h3>Denetim planı: hangi denetim hangi aşamada</h3>
+                    <p class="sub">Alan bazında aşama dağılımı. Bir parçaya tıklayın: alan ve aşama birlikte filtrelenir.</p></div></header>
+                <DxChart T="StackedValue" Data="@_stageByArea" Rotated="true" Height="280px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeStagePoint" SeriesClick="@OnStageClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var stage in AuditStages.All)
+                    {
+                        var s = stage;
+                        <DxChartStackedBarSeries T="StackedValue" TArgument="string" TValue="double" Name="@s"
+                                                 Filter="@(v => v.Series == s)" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                                 Color="@ChartPalette.Stage(s)" />
+                    }
+                </DxChart>
+            </section>
+
+            <section class="card span-5">
+                <header class="card-head"><div><h3>Plan ve gerçekleşme</h3><p class="sub">Yayımlanan rapor sayısı, kümülatif</p></div></header>
+                <DxChart T="MonthlyValue" Data="@_planVsActual" Height="280px" Width="100%">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Plan (kümülatif)"
+                                       Filter="@(v => v.Series == "Plan (kümülatif)")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)"
+                                       Color="@ChartPalette.Muted" DashStyle="ChartDashStyle.Dash" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Gerçekleşen"
+                                       Filter="@(v => v.Series == "Gerçekleşen")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)"
+                                       Color="@ChartPalette.Accent" />
+                    <DxChartArgumentAxis>
+                        <DxChartConstantLine Value="@Formatting.MonthShort(View.AsOf.Month)"><DxChartConstantLineLabel Text="Bugün" /></DxChartConstantLine>
+                    </DxChartArgumentAxis>
+                </DxChart>
+            </section>
+
+            <section class="card span-12">
+                <header class="card-head"><div><h3>Rapor zaman tüneli</h3>
+                    <p class="sub">Adım üstündeki sayı: şu an o adımda bekleyen rapor. Alttaki çubuk: ortalama bekleme süresinin SLA'ya oranı.</p></div></header>
+                @ReportTimeline(_steps, _skippedRatio)
+            </section>
+
+            <section class="card span-5">
+                <header class="card-head"><div><h3>Açık bulgular: aksiyon sahibi × risk</h3><p class="sub">Hücreye tıklayın: birim ve risk seviyesi filtrelenir.</p></div></header>
+                @RiskHeatmap(_heatmap)
+            </section>
+
+            <section class="card span-4">
+                <header class="card-head"><div><h3>Açık bulgu yaşlandırması</h3><p class="sub">Rapor tarihinden bugüne, risk seviyesine göre</p></div></header>
+                <DxChart T="StackedValue" Data="@_aging" Height="300px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeAgingPoint" SeriesClick="@OnAgingClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var risk in RiskLevels.All)
+                    {
+                        var r = risk;
+                        <DxChartStackedBarSeries T="StackedValue" TArgument="string" TValue="double" Name="@($"{DisplayNames.Risk(r)} risk")"
+                                                 Filter="@(v => v.Series == r)" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                                 Color="@ChartPalette.Risk(r)" />
+                    }
+                </DxChart>
+            </section>
+
+            <section class="card span-3">
+                <header class="card-head"><div><h3>Dikkat gerektirenler</h3><p class="sub">Tüm modüllerden sapmalar</p></div></header>
+                @AttentionList(_attention)
+            </section>
+
+            <section class="card span-7">
+                <header class="card-head"><div><h3>Kadro hareketi</h3><p class="sub">Dönem başından bugüne</p></div></header>
+                <DxChart T="WaterfallStep" Data="@_waterfall" Height="260px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeWaterfallPoint" SeriesClick="@OnWaterfallClick">
+                    <DxChartLegend Visible="false" />
+                    <DxChartRangeBarSeries T="WaterfallStep" TArgument="string" TValue="double" Name="Kadro"
+                                           ArgumentField="@(w => w.Label)" StartValueField="@(w => w.Base)" EndValueField="@(w => w.Base + w.Value)"
+                                           Color="@ChartPalette.Accent" />
+                </DxChart>
+                <div class="waterfall-values">@foreach (var w in _waterfall) { <span><b>@w.DisplayText</b> @w.Label</span> }</div>
+            </section>
+
+            <AuthorizeView Policy="@KokpitPolicies.HrViewer">
+                <section class="card span-5">
+                    <header class="card-head"><div><h3>Terfiler: tam / yarım</h3><p class="sub">Gelişim sepeti puanı ortalamasıyla</p></div></header>
+                    <DxPieChart T="CategoryValue" Data="@_promotions" InnerDiameter="0.62" Height="280px" Width="100%"
+                                CustomizeSeriesPoint="@DimCategory(FilterDimension.PromotionType, ChartPalette.Series1, c => ChartPalette.Promotion(c.FilterValue!))"
+                                SeriesClick="@ToggleCategory(FilterDimension.PromotionType)">
+                        <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Center" VerticalAlignment="VerticalEdge.Bottom" />
+                        <DxPieChartSeries T="CategoryValue" TArgument="string" TValue="double" ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)">
+                            <DxChartSeriesLabel Visible="true" Position="RelativePosition.Outside" />
+                        </DxPieChartSeries>
+                    </DxPieChart>
+                </section>
+            </AuthorizeView>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private KpiSummary _kpi = default!;
+    private IReadOnlyList<StackedValue> _stageByArea = [];
+    private IReadOnlyList<MonthlyValue> _planVsActual = [];
+    private IReadOnlyList<StepStat> _steps = [];
+    private double _skippedRatio;
+    private IReadOnlyList<HeatmapCell> _heatmap = [];
+    private IReadOnlyList<StackedValue> _aging = [];
+    private IReadOnlyList<AttentionItem> _attention = [];
+    private IReadOnlyList<WaterfallStep> _waterfall = [];
+    private IReadOnlyList<CategoryValue> _promotions = [];
+
+    protected override void BuildViewModel()
+    {
+        _kpi = KpiCalculator.Calculate(View, Options);
+        _stageByArea = AuditPlanCalculator.StageByArea(View, AuditPlanCalculator.AreaOrder(View.Snapshot));
+        _planVsActual = AuditPlanCalculator.PlanVsActual(View, Options.CycleTimeTargetDays);
+        _steps = ReportFlowCalculator.StepStats(View, Options);
+        _skippedRatio = ReportFlowCalculator.SkippedStepRatio(View);
+        _heatmap = FindingCalculator.OwnerRiskHeatmap(View, FindingCalculator.OwnerOrder(View.Snapshot));
+        _aging = FindingCalculator.AgingByRisk(View);
+        _attention = AttentionCalculator.Build(View, Options);
+        _waterfall = HrCalculator.HeadcountWaterfall(View);
+        _promotions = HrCalculator.PromotionsByType(View, Options)
+            .Select(p => new CategoryValue(
+                $"{DisplayNames.PromotionType(p.Type)} terfi" + (p.AverageScore is { } a ? $" · ort. puan {Formatting.Number(a)}" : ""),
+                p.Count, p.Type))
+            .ToList();
+    }
+}

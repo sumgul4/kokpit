@@ -1,0 +1,137 @@
+@page "/kokpit/human-resources"
+@attribute [Authorize(Policy = KokpitPolicies.HrViewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+
+<PageTitle>İnsan Kaynakları · CAE Kokpit</PageTitle>
+
+@* KVKK: page limited to the HR policy; HrCalculator hides groups smaller than Kokpit:MinGroupSize. *@
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Kadro hareketi</h3></div></header>
+                <DxChart T="WaterfallStep" Data="@_waterfall" Height="260px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeWaterfallPoint" SeriesClick="@OnWaterfallClick">
+                    <DxChartLegend Visible="false" />
+                    <DxChartRangeBarSeries T="WaterfallStep" TArgument="string" TValue="double" Name="Kadro"
+                                           ArgumentField="@(w => w.Label)" StartValueField="@(w => w.Base)" EndValueField="@(w => w.Base + w.Value)"
+                                           Color="@ChartPalette.Accent" />
+                </DxChart>
+                <div class="waterfall-values">@foreach (var w in _waterfall) { <span><b>@w.DisplayText</b> @w.Label</span> }</div>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Unvan dağılımı</h3><p class="sub">Tıklayarak unvanı filtreleyin</p></div></header>
+                <DxChart T="CategoryValue" Data="@_titles" Rotated="true" Height="280px" Width="100%"
+                         CustomizeSeriesPoint="@DimCategory(FilterDimension.Title, ChartPalette.Accent)"
+                         SeriesClick="@ToggleCategory(FilterDimension.Title)">
+                    <DxChartLegend Visible="false" />
+                    <DxChartBarSeries T="CategoryValue" TArgument="string" TValue="double" Name="Kişi"
+                                      ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)" Color="@ChartPalette.Accent">
+                        <DxChartSeriesLabel Visible="true" />
+                    </DxChartBarSeries>
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>İç hareketlilik</h3><p class="sub">Nereden gelindi, nereye gidildi</p></div></header>
+                @* DX-API: verify DxSankey field-name parameters and the node click event name in your version. *@
+                <DxSankey Data="@_mobility" Height="300px" Width="100%"
+                          SourceFieldName="@nameof(FlowLink.Source)" TargetFieldName="@nameof(FlowLink.Target)" WeightFieldName="@nameof(FlowLink.Weight)"
+                          NodeClick="@OnSankeyNodeClick">
+                    <DxSankeyNodeSettings Width="12" Spacing="14" />
+                    <DxSankeyLinkSettings ColorMode="SankeyLinkColorMode.Gradient" />
+                </DxSankey>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Terfi türü</h3></div></header>
+                <DxPieChart T="CategoryValue" Data="@_promotionTypes" InnerDiameter="0.62" Height="280px" Width="100%"
+                            CustomizeSeriesPoint="@DimCategory(FilterDimension.PromotionType, ChartPalette.Series1, c => ChartPalette.Promotion(c.FilterValue!))"
+                            SeriesClick="@ToggleCategory(FilterDimension.PromotionType)">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Center" VerticalAlignment="VerticalEdge.Bottom" />
+                    <DxPieChartSeries T="CategoryValue" TArgument="string" TValue="double" ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)">
+                        <DxChartSeriesLabel Visible="true" Position="RelativePosition.Outside" />
+                    </DxPieChartSeries>
+                </DxPieChart>
+            </section>
+
+            <section class="card span-7">
+                <header class="card-head"><div><h3>Gelişim sepeti puanı ve terfi sonucu</h3><p class="sub">Her nokta bir terfi</p></div></header>
+                <DxChart T="ScorePoint" Data="@_scores.Points" Rotated="true" Height="300px" Width="100%" SeriesClick="@OnScoreClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var type in PromotionTypes.All)
+                    {
+                        var t = type;
+                        <DxChartScatterSeries T="ScorePoint" TArgument="string" TValue="double" Name="@($"{DisplayNames.PromotionType(t)} terfi")"
+                                              Filter="@(p => p.Series == t)" ArgumentField="@(p => p.Title)" ValueField="@(p => p.Score)"
+                                              Color="@(Filters.IsVisible(FilterDimension.PromotionType, t) ? ChartPalette.Promotion(t) : ChartPalette.Dim(ChartPalette.Promotion(t)))">
+                            <DxChartSeriesPoint Size="11" />
+                        </DxChartScatterSeries>
+                    }
+                    <DxChartValueAxis><DxChartAxisTitle Text="Gelişim sepeti puanı" /></DxChartValueAxis>
+                </DxChart>
+                @if (_scores.HiddenTitles.Count > 0)
+                {
+                    <p class="note">Kişi sayısı az olduğu için gösterilmeyen unvanlar: @string.Join(", ", _scores.HiddenTitles)</p>
+                }
+            </section>
+
+            <section class="card span-5">
+                <header class="card-head"><div><h3>Unvana göre tam / yarım terfi</h3></div></header>
+                <DxChart T="StackedValue" Data="@_byTitle" Height="300px" Width="100%"
+                         SeriesClick="@ToggleStacked(FilterDimension.Title, FilterDimension.PromotionType)">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var type in PromotionTypes.All)
+                    {
+                        var t = type;
+                        <DxChartStackedBarSeries T="StackedValue" TArgument="string" TValue="double" Name="@($"{DisplayNames.PromotionType(t)} terfi")"
+                                                 Filter="@(v => v.Series == t)" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                                 Color="@ChartPalette.Promotion(t)" />
+                    }
+                </DxChart>
+            </section>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private IReadOnlyList<WaterfallStep> _waterfall = [];
+    private IReadOnlyList<CategoryValue> _titles = [];
+    private IReadOnlyList<FlowLink> _mobility = [];
+    private IReadOnlyList<CategoryValue> _promotionTypes = [];
+    private (IReadOnlyList<ScorePoint> Points, IReadOnlyList<string> HiddenTitles) _scores = ([], []);
+    private IReadOnlyList<StackedValue> _byTitle = [];
+
+    protected override void BuildViewModel()
+    {
+        _waterfall = HrCalculator.HeadcountWaterfall(View);
+        _titles = HrCalculator.TitleDistribution(View, Options);
+        _mobility = HrCalculator.MobilityLinks(View, Options);
+        _promotionTypes = HrCalculator.PromotionsByType(View, Options)
+            .Select(p => new CategoryValue(
+                $"{DisplayNames.PromotionType(p.Type)} terfi" + (p.AverageScore is { } a ? $" · ort. puan {Formatting.Number(a)}" : ""),
+                p.Count, p.Type))
+            .ToList();
+        _scores = HrCalculator.ScoreVsPromotion(View, Options);
+        _byTitle = HrCalculator.PromotionsByTitle(View, Options);
+    }
+
+    private void OnScoreClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<ScorePoint>(e) is { } p) Filters.Toggle(FilterDimension.PromotionType, p.Series);
+    }
+
+    private void OnSankeyNodeClick(SankeyNodeClickEventArgs e)
+    {
+        var title = e.Node?.Title;
+        if (!string.IsNullOrEmpty(title) && title != Options.BoardName) Filters.Toggle(FilterDimension.MovementDetail, title);
+    }
+}

@@ -1,0 +1,94 @@
+@page "/kokpit/findings"
+@attribute [Authorize(Policy = KokpitPolicies.Viewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+
+<PageTitle>Bulgular · CAE Kokpit</PageTitle>
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            @KpiRow(_kpi)
+
+            <section class="card span-4">
+                <header class="card-head"><div><h3>Bulgu durumu</h3><p class="sub">Toplam @_status.Sum(s => s.Value) bulgu</p></div></header>
+                <DxPieChart T="CategoryValue" Data="@_status" InnerDiameter="0.6" Height="280px" Width="100%"
+                            CustomizeSeriesPoint="@DimCategory(FilterDimension.FindingStatus, ChartPalette.Accent, c => ChartPalette.FindingStatus(c.FilterValue!))"
+                            SeriesClick="@ToggleCategory(FilterDimension.FindingStatus)">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Center" VerticalAlignment="VerticalEdge.Bottom" />
+                    <DxPieChartSeries T="CategoryValue" TArgument="string" TValue="double" ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)">
+                        <DxChartSeriesLabel Visible="true" Position="RelativePosition.Outside" />
+                    </DxPieChartSeries>
+                </DxPieChart>
+            </section>
+
+            <section class="card span-8">
+                <header class="card-head"><div><h3>Aksiyon sahibi × risk (açık bulgular)</h3><p class="sub">Hücreye tıklayın: birim ve risk seviyesi filtrelenir.</p></div></header>
+                @RiskHeatmap(_heatmap)
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Açık bulgu yaşlandırması</h3></div></header>
+                <DxChart T="StackedValue" Data="@_aging" Height="300px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeAgingPoint" SeriesClick="@OnAgingClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var risk in RiskLevels.All)
+                    {
+                        var r = risk;
+                        <DxChartStackedBarSeries T="StackedValue" TArgument="string" TValue="double" Name="@($"{DisplayNames.Risk(r)} risk")"
+                                                 Filter="@(v => v.Series == r)" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                                 Color="@ChartPalette.Risk(r)" />
+                    }
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Açılan ve kapanan bulgular</h3><p class="sub">Aylık</p></div></header>
+                <DxChart T="MonthlyValue" Data="@_openedClosed" Height="300px" Width="100%">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Açılan"
+                                       Filter="@(v => v.Series == "Açılan")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)" Color="@ChartPalette.Series2" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Kapanan"
+                                       Filter="@(v => v.Series == "Kapanan")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)" Color="@ChartPalette.Series1" />
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Tekrarlayan bulgular</h3><p class="sub">Aksiyon sahibi birime göre</p></div></header>
+                <DxChart T="CategoryValue" Data="@_repeats" Rotated="true" Height="260px" Width="100%"
+                         CustomizeSeriesPoint="@DimCategory(FilterDimension.ActionOwner, ChartPalette.Accent)"
+                         SeriesClick="@ToggleCategory(FilterDimension.ActionOwner)">
+                    <DxChartLegend Visible="false" />
+                    <DxChartBarSeries T="CategoryValue" TArgument="string" TValue="double" Name="Tekrarlayan bulgu"
+                                      ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)" Color="@ChartPalette.Accent">
+                        <DxChartSeriesLabel Visible="true" />
+                    </DxChartBarSeries>
+                </DxChart>
+            </section>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private KpiSummary _kpi = default!;
+    private IReadOnlyList<CategoryValue> _status = [];
+    private IReadOnlyList<HeatmapCell> _heatmap = [];
+    private IReadOnlyList<StackedValue> _aging = [];
+    private IReadOnlyList<MonthlyValue> _openedClosed = [];
+    private IReadOnlyList<CategoryValue> _repeats = [];
+
+    protected override void BuildViewModel()
+    {
+        _kpi = KpiCalculator.Calculate(View, Options);
+        _status = FindingCalculator.StatusCounts(View);
+        _heatmap = FindingCalculator.OwnerRiskHeatmap(View, FindingCalculator.OwnerOrder(View.Snapshot));
+        _aging = FindingCalculator.AgingByRisk(View);
+        _openedClosed = FindingCalculator.OpenedClosedByMonth(View);
+        _repeats = FindingCalculator.RepeatByOwner(View);
+    }
+}

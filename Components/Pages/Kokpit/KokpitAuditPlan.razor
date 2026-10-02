@@ -1,0 +1,118 @@
+@page "/kokpit/audit-plan"
+@attribute [Authorize(Policy = KokpitPolicies.Viewer)]
+@inherits KokpitPageBase
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+
+<PageTitle>Denetim Planı · CAE Kokpit</PageTitle>
+
+<KokpitLayout>
+    @if (IsLoading)
+    {
+        @Loading
+    }
+    else
+    {
+        <div class="grid">
+            <section class="card span-12">
+                <header class="card-head"><div><h3>Aşama özeti</h3><p class="sub">Kutuya tıklayarak aşamayı filtreleyin</p></div></header>
+                @StageBoxes(_stageSummary)
+            </section>
+
+            <section class="card span-12">
+                <header class="card-head"><div><h3>Devam eden ve başlamamış denetimler</h3><p class="sub">Plan takvimi; renk mevcut aşamayı gösterir</p></div></header>
+                @* Gantt = DxChartRangeBarSeries, rotated, date value axis *@
+                <DxChart T="GanttItem" Data="@_gantt" Rotated="true" Height="@($"{_gantt.Count * 30 + 70}px")" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeGanttPoint" SeriesClick="@OnGanttClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var stage in AuditStages.All.Where(s => s != AuditStages.Issued))
+                    {
+                        var s = stage;
+                        <DxChartRangeBarSeries T="GanttItem" TArgument="string" TValue="DateTime" Name="@s"
+                                               Filter="@(g => g.Stage == s)" ArgumentField="@(g => g.Label)"
+                                               StartValueField="@(g => g.Start)" EndValueField="@(g => g.End)"
+                                               Color="@ChartPalette.Stage(s)" />
+                    }
+                    <DxChartValueAxis>
+                        <DxChartConstantLine Value="@View.AsOf.ToDateTime(TimeOnly.MinValue)"><DxChartConstantLineLabel Text="Bugün" /></DxChartConstantLine>
+                    </DxChartValueAxis>
+                </DxChart>
+                <p class="note">
+                    @if (_notIssued > _gantt.Count) { <text>+@(_notIssued - _gantt.Count) denetim daha · </text> }
+                    gecikmeliler üstte (▲) · çubuğa tıklayınca aşama filtrelenir
+                </p>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Alan bazında aşama dağılımı</h3></div></header>
+                <DxChart T="StackedValue" Data="@_stageByArea" Rotated="true" Height="280px" Width="100%"
+                         CustomizeSeriesPoint="@CustomizeStagePoint" SeriesClick="@OnStageClick">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    @foreach (var stage in AuditStages.All)
+                    {
+                        var s = stage;
+                        <DxChartStackedBarSeries T="StackedValue" TArgument="string" TValue="double" Name="@s"
+                                                 Filter="@(v => v.Series == s)" ArgumentField="@(v => v.Argument)" ValueField="@(v => v.Value)"
+                                                 Color="@ChartPalette.Stage(s)" />
+                    }
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Plan ve gerçekleşme</h3><p class="sub">Yayımlanan rapor sayısı, kümülatif</p></div></header>
+                <DxChart T="MonthlyValue" Data="@_planVsActual" Height="280px" Width="100%">
+                    <DxChartLegend Position="RelativePosition.Outside" HorizontalAlignment="HorizontalAlignment.Left" VerticalAlignment="VerticalEdge.Top" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Plan (kümülatif)"
+                                       Filter="@(v => v.Series == "Plan (kümülatif)")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)"
+                                       Color="@ChartPalette.Muted" DashStyle="ChartDashStyle.Dash" />
+                    <DxChartLineSeries T="MonthlyValue" TArgument="string" TValue="double?" Name="Gerçekleşen"
+                                       Filter="@(v => v.Series == "Gerçekleşen")" ArgumentField="@(v => v.MonthLabel)" ValueField="@(v => v.Value)"
+                                       Color="@ChartPalette.Accent" />
+                </DxChart>
+            </section>
+
+            <section class="card span-6">
+                <header class="card-head"><div><h3>Gecikmeli denetimler</h3><p class="sub">Başlaması, sahası veya raporu planın gerisinde kalanlar</p></div></header>
+                <DxChart T="CategoryValue" Data="@_delayed" Rotated="true" Height="240px" Width="100%"
+                         CustomizeSeriesPoint="@DimCategory(FilterDimension.Area, ChartPalette.Warning)"
+                         SeriesClick="@ToggleCategory(FilterDimension.Area)">
+                    <DxChartLegend Visible="false" />
+                    <DxChartBarSeries T="CategoryValue" TArgument="string" TValue="double" Name="Gecikmeli denetim"
+                                      ArgumentField="@(c => c.Category)" ValueField="@(c => c.Value)" Color="@ChartPalette.Warning">
+                        <DxChartSeriesLabel Visible="true" />
+                    </DxChartBarSeries>
+                </DxChart>
+            </section>
+        </div>
+    }
+</KokpitLayout>
+
+@code {
+    private IReadOnlyList<(string Stage, int Count, int Delayed, double Share)> _stageSummary = [];
+    private IReadOnlyList<GanttItem> _gantt = [];
+    private int _notIssued;
+    private IReadOnlyList<StackedValue> _stageByArea = [];
+    private IReadOnlyList<MonthlyValue> _planVsActual = [];
+    private IReadOnlyList<CategoryValue> _delayed = [];
+
+    protected override void BuildViewModel()
+    {
+        var areas = AuditPlanCalculator.AreaOrder(View.Snapshot);
+        _stageSummary = AuditPlanCalculator.StageSummary(View);
+        _gantt = AuditPlanCalculator.Gantt(View);
+        _notIssued = AuditPlanCalculator.NotIssuedCount(View);
+        _stageByArea = AuditPlanCalculator.StageByArea(View, areas);
+        _planVsActual = AuditPlanCalculator.PlanVsActual(View, Options.CycleTimeTargetDays);
+        _delayed = AuditPlanCalculator.DelayedByArea(View, areas);
+    }
+
+    private void CustomizeGanttPoint(ChartSeriesPointCustomizationSettings s)
+    {
+        if (ChartInterop.DataItem<GanttItem>(s) is { } g && !Filters.IsVisible(FilterDimension.Stage, g.Stage))
+            s.PointAppearance.Color = ChartPalette.Dim(ChartPalette.Stage(g.Stage));
+    }
+
+    private void OnGanttClick(ChartSeriesClickEventArgs e)
+    {
+        if (ChartInterop.DataItem<GanttItem>(e) is { } g) Filters.Toggle(FilterDimension.Stage, g.Stage);
+    }
+}
