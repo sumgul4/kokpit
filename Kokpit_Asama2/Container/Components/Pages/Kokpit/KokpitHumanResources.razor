@@ -1,0 +1,14 @@
+@* İnsan Kaynakları sekmesi. Only created for HrViewer users (see Kokpit.razor);
+   AuthorizeView is a second check so HR content can never render for anyone else. *@
+
+<AuthorizeView Policy="@KokpitPolicies.HrViewer">
+    <Authorized>
+        <div class="tab-placeholder">
+            <h2>İnsan Kaynakları</h2>
+            <p>Kadro hareketi, unvan dağılımı, iç hareketlilik ve terfi grafikleri burada yer alacak.</p>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="tab-placeholder">Bu bölümü görüntüleme yetkiniz yok.</div>
+    </NotAuthorized>
+</AuthorizeView>

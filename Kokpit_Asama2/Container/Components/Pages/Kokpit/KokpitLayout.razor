@@ -1,0 +1,46 @@
+@* Cockpit frame: top bar (title, logo, reserved slots on the right) + content + footer.
+   A normal component wrapped around the page content, so the host app's MainLayout and menu stay as they are. *@
+
+<HeadContent>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&display=swap" />
+</HeadContent>
+
+<div class="kokpit">
+    <header class="top">
+        <div class="brand">
+            <h1>CAE KOKPİT <span>· İç Denetim Başkanı</span></h1>
+            <img class="logo" src="@LogoPath" alt="D³ Denetim · Danışmanlık · Dönüşüm" />
+        </div>
+
+        <div class="top-right">
+            @* AY-09: live update indicator ("Son güncelleme 14:32") — added with the data layer. *@
+            <div class="slot slot-live" aria-label="Canlı güncelleme">@LiveStatus</div>
+
+            @* AY-07: theme selector — added in a later step. *@
+            <div class="slot slot-theme" aria-label="Tema seçici">@ThemeSelector</div>
+        </div>
+    </header>
+
+    <main class="content">
+        @ChildContent
+    </main>
+
+    <footer class="footer">
+        <span>Plan yılı <b>@PlanYear</b></span>
+        <span class="sep">·</span>
+        <span>D³ Denetim · Danışmanlık · Dönüşüm</span>
+    </footer>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int PlanYear { get; set; }
+    [Parameter] public string LogoPath { get; set; } = "img/kokpit/d3-white.png";
+
+    /// <summary>AY-09 slot. Empty for now; the space is reserved so the bar does not shift later.</summary>
+    [Parameter] public RenderFragment? LiveStatus { get; set; }
+
+    /// <summary>AY-07 slot. Empty for now.</summary>
+    [Parameter] public RenderFragment? ThemeSelector { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

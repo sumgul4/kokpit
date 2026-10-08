@@ -1,0 +1,111 @@
+@page "/kokpit"
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse bu satırı açın *@
+@inject IAuthorizationService AuthorizationService
+@inject NavigationManager Navigation
+@inject ProtectedLocalStorage LocalStorage
+@inject IOptions<KokpitOptions> Options
+@inject ILogger<Kokpit> Logger
+
+@* The cockpit: ONE page, top bar + 6 tabs (DxTabs). Access:
+     - no Viewer role  → redirected to /kokpit/access-denied (checked on the server before anything renders)
+     - no HrViewer role → the HR tab is not created at all
+   The last opened tab is remembered per browser (ProtectedLocalStorage). *@
+
+<PageTitle>CAE Kokpit</PageTitle>
+
+@if (_authorized)
+{
+    <KokpitLayout PlanYear="@Options.Value.EffectivePlanYear" LogoPath="@Options.Value.LogoPath">
+        @if (_tabRestored)
+        {
+            @* DX-API: TabsRenderMode.OnDemand = a tab's content is created the first time it is opened. *@
+            <DxTabs CssClass="kokpit-tabs"
+                    ActiveTabIndex="@_activeIndex"
+                    ActiveTabIndexChanged="@OnActiveTabChanged"
+                    RenderMode="TabsRenderMode.OnDemand">
+                @foreach (var tab in _tabs)
+                {
+                    <DxTabPage Text="@tab.Title">
+                        <div class="tab-body">
+                            <DynamicComponent Type="@tab.Component" />
+                        </div>
+                    </DxTabPage>
+                }
+            </DxTabs>
+        }
+    </KokpitLayout>
+}
+
+@code {
+    /// <summary>Tab definitions in prototype order. Key = what is stored as "last opened tab".</summary>
+    private sealed record KokpitTab(string Key, string Title, Type Component, bool RequiresHr = false);
+
+    private static readonly KokpitTab[] AllTabs =
+    [
+        new("overview", "Genel Bakış", typeof(KokpitOverview)),
+        new("audit-plan", "Denetim Planı", typeof(KokpitAuditPlan)),
+        new("findings", "Bulgular", typeof(KokpitFindings)),
+        new("report-tracking", "Rapor Takibi", typeof(KokpitReportTracking)),
+        new("human-resources", "İnsan Kaynakları", typeof(KokpitHumanResources), RequiresHr: true),
+        new("capacity-quality", "Kapasite & Kalite", typeof(KokpitCapacityQuality))
+    ];
+
+    private const string ActiveTabStorageKey = "kokpit.activeTab";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private IReadOnlyList<KokpitTab> _tabs = [];
+    private bool _authorized;
+    private bool _tabRestored;
+    private int _activeIndex;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthenticationState is null ? new ClaimsPrincipal() : (await AuthenticationState).User;
+
+        if (!(await AuthorizationService.AuthorizeAsync(user, KokpitPolicies.Viewer)).Succeeded)
+        {
+            Logger.LogWarning("Kokpit access denied for {User}", user.Identity?.Name ?? "(anonymous)");
+            Navigation.NavigateTo(KokpitRoutes.AccessDenied, replace: true);
+            return;
+        }
+
+        var canSeeHr = (await AuthorizationService.AuthorizeAsync(user, KokpitPolicies.HrViewer)).Succeeded;
+        _tabs = AllTabs.Where(t => !t.RequiresHr || canSeeHr).ToList();
+        _authorized = true;
+    }
+
+    // Browser storage is only reachable after the first interactive render.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_authorized || _tabRestored) return;
+
+        try
+        {
+            var stored = await LocalStorage.GetAsync<string>(ActiveTabStorageKey);
+            var index = stored.Success ? _tabs.ToList().FindIndex(t => t.Key == stored.Value) : -1;
+            _activeIndex = index >= 0 ? index : 0; // a remembered tab the user can no longer see → first tab
+        }
+        catch (Exception ex)
+        {
+            // Storage unavailable (private window, cleared keys, data-protection key change): start on the first tab.
+            Logger.LogDebug(ex, "Could not read the remembered Kokpit tab.");
+        }
+
+        _tabRestored = true;
+        StateHasChanged();
+    }
+
+    private async Task OnActiveTabChanged(int index)
+    {
+        _activeIndex = index;
+        try
+        {
+            await LocalStorage.SetAsync(ActiveTabStorageKey, _tabs[index].Key);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not store the active Kokpit tab.");
+        }
+    }
+}
