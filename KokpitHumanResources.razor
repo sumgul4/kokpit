@@ -1,0 +1,18 @@
+@* İnsan Kaynakları sekmesi. Only created for HR users (see Kokpit.razor);
+   the CanSeeHr check here is a second guard so HR content can never render for anyone else. *@
+
+@if (Access?.CanSeeHr == true)
+{
+    <div class="tab-placeholder">
+        <h2>İnsan Kaynakları</h2>
+        <p>Kadro hareketi, unvan dağılımı, iç hareketlilik ve terfi grafikleri burada yer alacak.</p>
+    </div>
+}
+else
+{
+    <div class="tab-placeholder">Bu bölümü görüntüleme yetkiniz yok.</div>
+}
+
+@code {
+    [CascadingParameter] public KokpitUserAccess? Access { get; set; }
+}

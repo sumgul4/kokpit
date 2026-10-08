@@ -1,0 +1,142 @@
+/* Cockpit styles, scoped to .kokpit so nothing leaks into the host app.
+   Font: Source Sans 3 served from wwwroot/fonts/kokpit (no internet needed; SIL Open Font License).
+   URLs are relative to the bundled Container.styles.css at the site root. If the files are missing,
+   the browser falls back to Segoe UI.
+   Tokens sit on .kokpit (not :root). Petrol theme; AY-07 will switch these tokens. */
+
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-ext-400-normal.woff2") format("woff2");
+    unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-400-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-ext-600-normal.woff2") format("woff2");
+    unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-600-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-ext-700-normal.woff2") format("woff2");
+    unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: "Source Sans 3";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("fonts/kokpit/source-sans-3-latin-700-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+.kokpit {
+    --font: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --ink: #12201c;
+    --muted: #5d6b66;
+    --line: #e2e6eb;
+    --accent: #0f6b5c;
+    --accent-soft: #dcefea;
+    --head-bg: #0f5c4f;
+    --head-ink: #ffffff;
+    --head-muted: #b8d8d0;
+    --head-line: #1f7264;
+    --radius: 6px;
+
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 14px;
+}
+
+.kokpit, .kokpit ::deep * { box-sizing: border-box; }
+
+/* ---------- Top bar ---------- */
+.top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    padding: 12px 20px;
+    background: var(--head-bg);
+    color: var(--head-ink);
+}
+
+.brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.brand h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: .08em; white-space: nowrap; }
+.brand h1 span { color: var(--head-muted); font-weight: 500; letter-spacing: .02em; }
+.logo { height: 40px; padding-left: 16px; border-left: 1px solid var(--head-line); }
+
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+.slot { min-height: 28px; display: flex; align-items: center; font-size: 12px; color: var(--head-muted); }
+.slot-live { min-width: 170px; justify-content: flex-end; }   /* reserved for AY-09 */
+.slot-theme { min-width: 120px; justify-content: flex-end; }  /* reserved for AY-07 */
+
+/* ---------- Content & tabs ---------- */
+.content { flex: 1; width: 100%; max-width: 1480px; margin: 0 auto; padding: 16px 20px 24px; }
+
+.content ::deep .kokpit-tabs { width: 100%; }
+.content ::deep .tab-body { padding-top: 16px; }
+
+/* Empty-state used by the tab placeholders until their cards are built. */
+.content ::deep .tab-placeholder {
+    background: var(--surface);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--muted);
+}
+.content ::deep .tab-placeholder h2 { margin: 0 0 6px; font-size: 16px; color: var(--ink); }
+
+/* ---------- Footer ---------- */
+.footer {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    padding: 12px 20px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+}
+.footer b { color: var(--ink); }
+
+/* ---------- Narrow screens ---------- */
+@media (max-width: 760px) {
+    .top { padding: 10px 16px; }
+    .brand h1 span { display: none; }
+    .logo { height: 32px; }
+    .top-right { margin-left: 0; width: 100%; justify-content: space-between; }
+    .content { padding: 12px 16px 20px; }
+}
