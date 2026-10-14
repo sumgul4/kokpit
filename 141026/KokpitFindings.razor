@@ -1,0 +1,396 @@
+@implements IDisposable
+
+@* Bulgular sekmesi — 8 parça. Tüm kartlar aynı filtrelenmiş aksiyon listesinden hesaplanır (KokpitMetrics).
+   Grafiğe / ısı haritası hücresine tıklamak filtre ekler; filtre çubuğu Kokpit.razor'dadır.
+   DX-API ile işaretli satırlar DevExpress sürümünüzde farklı adlandırılmış olabilir. *@
+
+@if (Snapshot is null || Filters is null)
+{
+    return;
+}
+
+@if (_actions.Count == 0)
+{
+    <div class="tab-placeholder">
+        <h2>Seçili filtrelerle kayıt yok</h2>
+        <p>Filtre çubuğundan bir filtreyi kaldırın ya da "Filtreleri temizle"ye basın.</p>
+    </div>
+    return;
+}
+
+<div class="dash">
+
+    @* ---------- 1. KPI satırı ---------- *@
+    <section class="kpis span-12" aria-label="Özet göstergeler">
+        @foreach (var kpi in _kpis)
+        {
+            <div class="kpi @(kpi.Tone is null ? "" : "kpi-" + kpi.Tone)">
+                <div class="kpi-title">@kpi.Title</div>
+                <div class="kpi-value">@kpi.Value</div>
+                @if (kpi.Note is not null)
+                {
+                    <div class="kpi-note">@kpi.Note</div>
+                }
+            </div>
+        }
+    </section>
+
+    @* ---------- 2. Sektör × seviye ısı haritası ---------- *@
+    <section class="card span-7">
+        <header class="card-head">
+            <h2>Açık bulgular · sektör × seviye</h2>
+            <span class="card-hint">Hücre, satır ya da sütun başlığına tıklayın</span>
+        </header>
+        @if (_heatmap.Total == 0)
+        {
+            <p class="card-empty">Açık bulgu yok.</p>
+        }
+        else
+        {
+            <div class="heat-wrap">
+                <table class="heat">
+                    <thead>
+                        <tr>
+                            <th class="heat-corner">Sektör</th>
+                            @foreach (var column in _heatmap.Columns)
+                            {
+                                <th>
+                                    <button type="button" class="heat-axis @Sel(KokpitDimension.FindingLevel, column)"
+                                            @onclick="() => Filters.Toggle(KokpitDimension.FindingLevel, column)">
+                                        <i class="dot" style="background:@Hex(column)"></i>@column
+                                    </button>
+                                </th>
+                            }
+                            <th class="heat-total">Toplam</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _heatmap.Rows)
+                        {
+                            <tr>
+                                <th>
+                                    <button type="button" class="heat-axis heat-row @Sel(KokpitDimension.Sector, row)"
+                                            @onclick="() => Filters.Toggle(KokpitDimension.Sector, row)">@row</button>
+                                </th>
+                                @foreach (var column in _heatmap.Columns)
+                                {
+                                    var value = _heatmap[row, column];
+                                    <td>
+                                        @if (value > 0)
+                                        {
+                                            var share = HeatShare(value);
+                                            <button type="button"
+                                                    class="heat-cell @(share >= 55 ? "heat-strong" : "") @(Filters.IsSelected(KokpitDimension.Sector, row) && Filters.IsSelected(KokpitDimension.FindingLevel, column) ? "selected" : "")"
+                                                    style="--p:@(share)%"
+                                                    title="@row · @column: @value açık bulgu"
+                                                    @onclick="() => Filters.Toggle(KokpitDimension.Sector, row, KokpitDimension.FindingLevel, column)">
+                                                @value
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="heat-zero">·</span>
+                                        }
+                                    </td>
+                                }
+                                <td class="heat-total">@_heatmap.RowTotals[row]</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th>Toplam</th>
+                            @foreach (var column in _heatmap.Columns)
+                            {
+                                <td>@(_heatmap.ColumnTotals.TryGetValue(column, out var t) ? t : 0)</td>
+                            }
+                            <td class="heat-total">@_heatmap.Total</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <p class="card-foot">Birden fazla sektörde aksiyonu olan bulgu her sektör satırında sayılır; toplam tekildir.</p>
+        }
+    </section>
+
+    @* ---------- 3. Gecikme yaşlandırması ---------- *@
+    <section class="card span-5">
+        <header class="card-head">
+            <h2>Gecikme yaşlandırması</h2>
+            <span class="card-hint">Gecikmiş aksiyon · bulgu seviyesine göre</span>
+            @Selected(AgingDims)
+        </header>
+        @if (_aging.Count == 0)
+        {
+            <p class="card-empty">Gecikmiş aksiyon yok.</p>
+        }
+        else
+        {
+            @BarChart(_aging, KokpitDimension.OverdueBucket, KokpitDimension.FindingLevel, stacked: true, rotated: false)
+        }
+    </section>
+
+    @* ---------- 4. Yaklaşan vadeler ---------- *@
+    <section class="card span-5">
+        <header class="card-head">
+            <h2>Yaklaşan vadeler</h2>
+            <span class="card-hint">Açık aksiyon · önümüzdeki 90 gün</span>
+        </header>
+        <div class="due-windows">
+            @foreach (var (window, count) in _dueWindows)
+            {
+                <button type="button" class="due-window @Sel(KokpitDimension.DueWindow, window)"
+                        @onclick="() => Filters.Toggle(KokpitDimension.DueWindow, window)">
+                    <span class="due-count">@count</span>
+                    <span class="due-label">@window</span>
+                </button>
+            }
+        </div>
+        @if (_nextDue.Count == 0)
+        {
+            <p class="card-empty">90 gün içinde vadesi dolan açık aksiyon yok.</p>
+        }
+        else
+        {
+            @* DX-API: DxGrid / DxGridDataColumn (FieldName, Caption, Width, DisplayFormat). *@
+            <DxGrid Data="@_nextDue" CssClass="kokpit-grid" PagerVisible="false" PageSize="@_nextDue.Count">
+                <Columns>
+                    <DxGridDataColumn FieldName="@nameof(KokpitDueItem.DueDate)" Caption="Vade" DisplayFormat="dd.MM.yyyy" Width="92px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitDueItem.DaysLeft)" Caption="Kalan gün" Width="80px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitDueItem.FindingCode)" Caption="Bulgu" Width="110px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitDueItem.Organization)" Caption="Sorumlu birim" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitDueItem.CompletionRate)" Caption="İlerleme %" Width="86px" />
+                </Columns>
+            </DxGrid>
+        }
+    </section>
+
+    @* ---------- 5. Sorumlu birime göre açık aksiyon ---------- *@
+    <section class="card span-7">
+        <header class="card-head">
+            <h2>Sorumlu birime göre açık aksiyon</h2>
+            <span class="card-hint">İlk 10 birim · gecikmiş / vadesi gelmemiş</span>
+            @Selected(OrganizationDims)
+        </header>
+        @if (_byOrganization.Count == 0)
+        {
+            <p class="card-empty">Açık aksiyon yok.</p>
+        }
+        else
+        {
+            @BarChart(_byOrganization, KokpitDimension.ResponsibleOrganization, null, stacked: true, rotated: true, height: "340px")
+        }
+    </section>
+
+    @* ---------- 6. Aylık açılan / tamamlanan ---------- *@
+    <section class="card span-7">
+        <header class="card-head">
+            <h2>Aylık açılan / tamamlanan aksiyon</h2>
+            <span class="card-hint">Son 12 ay · açılan = bulgu tarihi, tamamlanan = tamamlanma tarihi</span>
+        </header>
+        @BarChart(_monthly, null, null, stacked: false, rotated: false)
+    </section>
+
+    @* ---------- 7. Aciliyet × önem ---------- *@
+    <section class="card span-5">
+        <header class="card-head">
+            <h2>Aciliyet × önem</h2>
+            <span class="card-hint">Açık aksiyon · bar = aciliyet, renk = önem</span>
+            @Selected(UrgencyDims)
+        </header>
+        @if (_urgency.Count == 0)
+        {
+            <p class="card-empty">Açık aksiyon yok.</p>
+        }
+        else
+        {
+            @BarChart(_urgency, KokpitDimension.ActionUrgency, KokpitDimension.ActionImportance, stacked: true, rotated: false)
+        }
+    </section>
+
+    @* ---------- 8. En çok ertelenen aksiyonlar ---------- *@
+    <section class="card span-12">
+        <header class="card-head">
+            <h2>En çok ertelenen açık aksiyonlar</h2>
+            <span class="card-hint">Revizyon sayısına göre ilk 10</span>
+        </header>
+        @if (_postponed.Count == 0)
+        {
+            <p class="card-empty">Revize edilmiş açık aksiyon yok.</p>
+        }
+        else
+        {
+            <DxGrid Data="@_postponed" CssClass="kokpit-grid" PagerVisible="false" PageSize="@_postponed.Count">
+                <Columns>
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.RevisionCount)" Caption="Revizyon" Width="80px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.FindingCode)" Caption="Bulgu" Width="120px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.FindingLevel)" Caption="Seviye" Width="110px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.ActionSummary)" Caption="Aksiyon" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.Organization)" Caption="Sorumlu birim" Width="220px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.DueDate)" Caption="Vade" DisplayFormat="dd.MM.yyyy" Width="92px" />
+                    <DxGridDataColumn FieldName="@nameof(KokpitPostponedItem.OverdueDays)" Caption="Gecikme (gün)" Width="104px" />
+                </Columns>
+            </DxGrid>
+        }
+    </section>
+</div>
+
+@code {
+    [CascadingParameter] private KokpitSnapshot? Snapshot { get; set; }
+    [CascadingParameter] private KokpitFilterState? Filters { get; set; }
+
+    private static readonly KokpitDimension[] HeatmapDims = [KokpitDimension.Sector, KokpitDimension.FindingLevel];
+    private static readonly KokpitDimension[] AgingDims = [KokpitDimension.OverdueBucket, KokpitDimension.FindingLevel];
+    private static readonly KokpitDimension[] DueDims = [KokpitDimension.DueWindow];
+    private static readonly KokpitDimension[] OrganizationDims = [KokpitDimension.ResponsibleOrganization];
+    private static readonly KokpitDimension[] UrgencyDims = [KokpitDimension.ActionUrgency, KokpitDimension.ActionImportance];
+
+    private KokpitSnapshot? _calculatedFor;
+    private KokpitFilterState? _subscribed;
+
+    private IReadOnlyList<KokpitAction> _actions = [];
+    private IReadOnlyList<KokpitKpi> _kpis = [];
+    private KokpitHeatmap _heatmap = new([], [], new Dictionary<(string, string), int>(), new Dictionary<string, int>(), new Dictionary<string, int>(), 0, 0);
+    private IReadOnlyList<KokpitChartPoint> _aging = [];
+    private IReadOnlyList<(string Window, int Count)> _dueWindows = [];
+    private IReadOnlyList<KokpitDueItem> _nextDue = [];
+    private IReadOnlyList<KokpitChartPoint> _byOrganization = [];
+    private IReadOnlyList<KokpitChartPoint> _monthly = [];
+    private IReadOnlyList<KokpitChartPoint> _urgency = [];
+    private IReadOnlyList<KokpitPostponedItem> _postponed = [];
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_subscribed, Filters))
+        {
+            if (_subscribed is not null) _subscribed.Changed -= OnFiltersChanged;
+            _subscribed = Filters;
+            if (_subscribed is not null) _subscribed.Changed += OnFiltersChanged;
+            _calculatedFor = null;
+        }
+
+        // Recalculate only when a new snapshot arrives; filter changes come through OnFiltersChanged.
+        if (!ReferenceEquals(_calculatedFor, Snapshot)) Recalculate();
+    }
+
+    private void OnFiltersChanged()
+    {
+        Recalculate();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Recalculate()
+    {
+        if (Snapshot is null || Filters is null) return;
+        _calculatedFor = Snapshot;
+
+        var today = DateTime.Today;
+        var all = Snapshot.Actions;
+
+        // KPIs, lists and the monthly chart use every filter.
+        _actions = Filters.Apply(all, today);
+        _kpis = KokpitMetrics.Kpis(_actions, today);
+        _nextDue = KokpitMetrics.NextDue(_actions, today);
+        _monthly = KokpitMetrics.MonthlyFlow(_actions, today);
+        _postponed = KokpitMetrics.MostPostponed(_actions, today);
+
+        // Clickable cards ignore their own dimensions (see KokpitFilterState.Apply).
+        _heatmap = KokpitMetrics.SectorLevelHeatmap(Filters.Apply(all, today, HeatmapDims));
+        _aging = KokpitMetrics.OverdueAging(Filters.Apply(all, today, AgingDims), today);
+        _dueWindows = KokpitMetrics.DueWindowCounts(Filters.Apply(all, today, DueDims), today);
+        _byOrganization = KokpitMetrics.OpenByOrganization(Filters.Apply(all, today, OrganizationDims), today);
+        _urgency = KokpitMetrics.UrgencyImportance(Filters.Apply(all, today, UrgencyDims));
+    }
+
+    // ---------- chart ----------
+
+    /// <summary>
+    /// Bar chart over KokpitChartPoint rows: one series per distinct Series value, coloured by KokpitPalette.
+    /// argumentDimension / seriesDimension = what a click on a bar filters (null = not clickable).
+    /// </summary>
+    private RenderFragment BarChart(IReadOnlyList<KokpitChartPoint> data, KokpitDimension? argumentDimension,
+        KokpitDimension? seriesDimension, bool stacked, bool rotated, string height = "300px") => __builder =>
+    {
+        var seriesNames = data.Select(p => p.Series).Distinct().ToList();
+        var clickable = argumentDimension is not null;
+
+        @* DX-API: DxChart (Data, Rotated, SeriesClick), DxChartBarSeries / DxChartStackedBarSeries (Name, Filter, Color,
+           ArgumentField, ValueField), DxChartLegend, DxChartTooltip (context.Point.Argument / Value / SeriesName). *@
+        <DxChart T="KokpitChartPoint" Data="@data" Rotated="@rotated"
+                 CssClass="@(clickable ? "kokpit-chart clickable" : "kokpit-chart")"
+                 Height="@height" Width="100%"
+                 SeriesClick="@(e => OnChartClick(e, argumentDimension, seriesDimension))">
+            @foreach (var name in seriesNames)
+            {
+                var seriesName = name;
+                if (stacked)
+                {
+                    <DxChartStackedBarSeries T="KokpitChartPoint" TArgument="string" TValue="int"
+                                             Name="@seriesName" Color="@KokpitPalette.For(seriesName)"
+                                             Filter="@(p => p.Series == seriesName)"
+                                             ArgumentField="@(p => p.Argument)" ValueField="@(p => p.Value)" />
+                }
+                else
+                {
+                    <DxChartBarSeries T="KokpitChartPoint" TArgument="string" TValue="int"
+                                      Name="@seriesName" Color="@KokpitPalette.For(seriesName)"
+                                      Filter="@(p => p.Series == seriesName)"
+                                      ArgumentField="@(p => p.Argument)" ValueField="@(p => p.Value)" />
+                }
+            }
+            <DxChartLegend Visible="@(seriesNames.Count > 1)" Position="RelativePosition.Outside"
+                           HorizontalAlignment="HorizontalAlignment.Center" VerticalAlignment="VerticalEdge.Bottom" />
+            <DxChartTooltip Enabled="true" Position="RelativePosition.Outside">
+                <div class="chart-tip">
+                    <b>@context.Point.Argument</b>
+                    @if (seriesNames.Count > 1)
+                    {
+                        <span>@context.Point.SeriesName</span>
+                    }
+                    <span>@context.Point.Value</span>
+                </div>
+            </DxChartTooltip>
+        </DxChart>
+    };
+
+    private void OnChartClick(ChartSeriesClickEventArgs e, KokpitDimension? argumentDimension, KokpitDimension? seriesDimension)
+    {
+        if (Filters is null || argumentDimension is null) return;
+
+        // DX-API: clicked bar → e.Point.Argument (category), e.Series.Name (stacked segment).
+        var argument = e.Point?.Argument?.ToString();
+        var series = e.Series?.Name;
+
+        if (seriesDimension is { } sd && !string.IsNullOrEmpty(series))
+            Filters.Toggle(argumentDimension.Value, argument, sd, series);
+        else
+            Filters.Toggle(argumentDimension.Value, argument);
+    }
+
+    // ---------- view helpers ----------
+
+    /// <summary>"Seçili: …" badge on chart cards (DxChart draws all bars; the badge shows what is filtered).</summary>
+    private RenderFragment Selected(KokpitDimension[] dimensions) => __builder =>
+    {
+        var values = Filters!.SelectedValues(dimensions);
+        if (values.Count > 0)
+        {
+            <span class="card-selected">Seçili: @string.Join(" · ", values)</span>
+        }
+    };
+
+    private string Sel(KokpitDimension dimension, string value) =>
+        Filters!.IsSelected(dimension, value) ? "selected" : "";
+
+    /// <summary>Heatmap colour strength, 12–90 % of the accent colour.</summary>
+    private int HeatShare(int value) =>
+        _heatmap.Max == 0 ? 0 : (int)Math.Round(12 + 78.0 * value / _heatmap.Max);
+
+    private static string Hex(string series) =>
+        System.Drawing.ColorTranslator.ToHtml(KokpitPalette.For(series));
+
+    public void Dispose()
+    {
+        if (_subscribed is not null) _subscribed.Changed -= OnFiltersChanged;
+    }
+}

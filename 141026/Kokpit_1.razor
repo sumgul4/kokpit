@@ -1,0 +1,190 @@
+@page "/kokpit"
+@* @layout EmptyLayout              ← Routes.razor'daki varsayılan layout EmptyLayout değilse açın *@
+@* @rendermode InteractiveServer   ← uygulamanız genelinde interaktif değilse açın *@
+@inject GlobalDegiskenler _global
+@inject IDataAccess _db
+@inject NavigationManager Navigation
+@inject ProtectedLocalStorage LocalStorage
+@inject ILogger<Kokpit> Logger
+@implements IDisposable
+
+@* The cockpit: ONE page, top bar + 6 tabs (DxTabs).
+     - user not in KokpitSettings.ViewerUsers → nothing renders, browser is sent to /kokpit/access-denied
+     - user not in KokpitSettings.HrUsers     → the HR tab is not created
+   The last opened tab is remembered per browser (ProtectedLocalStorage). *@
+
+<PageTitle>CAE Kokpit</PageTitle>
+
+@if (_access.CanView)
+{
+    <CascadingValue Value="_access" IsFixed="true">
+        <KokpitLayout PlanYear="@KokpitSettings.PlanYear" LogoPath="@KokpitSettings.LogoPath">
+            @if (_loadError is not null)
+            {
+                <div class="tab-body">
+                    <div class="tab-placeholder">
+                        <h2>Veriler yüklenemedi</h2>
+                        <p>@_loadError</p>
+                    </div>
+                </div>
+            }
+            else if (_tabRestored && _snapshot is not null)
+            {
+                @* DX-API: TabsRenderMode.OnDemand = a tab's content is created the first time it is opened. *@
+                <CascadingValue Value="_snapshot" IsFixed="false">
+                <CascadingValue Value="_filters" IsFixed="true">
+                <DxTabs CssClass="kokpit-tabs"
+                        ActiveTabIndex="@_activeIndex"
+                        ActiveTabIndexChanged="@OnActiveTabChanged"
+                        RenderMode="TabsRenderMode.OnDemand">
+                    @foreach (var tab in _tabs)
+                    {
+                        <DxTabPage Text="@tab.Title">
+                            <div class="tab-body">
+                                @if (tab.UsesFilters)
+                                {
+                                    @FilterBar
+                                }
+                                <DynamicComponent Type="@tab.Component" />
+                            </div>
+                        </DxTabPage>
+                    }
+                </DxTabs>
+                </CascadingValue>
+                </CascadingValue>
+            }
+        </KokpitLayout>
+    </CascadingValue>
+}
+
+@code {
+    /// <summary>Tab definitions in prototype order. Key = what is stored as "last opened tab".</summary>
+    private sealed record KokpitTab(string Key, string Title, Type Component, bool RequiresHr = false, bool UsesFilters = false);
+
+    private static readonly KokpitTab[] AllTabs =
+    [
+        new("overview", "Genel Bakış", typeof(KokpitOverview)),
+        new("audit-plan", "Denetim Planı", typeof(KokpitAuditPlan)),
+        new("findings", "Bulgular", typeof(KokpitFindings), UsesFilters: true),
+        new("report-tracking", "Rapor Takibi", typeof(KokpitReportTracking)),
+        new("human-resources", "İnsan Kaynakları", typeof(KokpitHumanResources), RequiresHr: true),
+        new("capacity-quality", "Kapasite & Kalite", typeof(KokpitCapacityQuality))
+    ];
+
+    private const string ActiveTabStorageKey = "kokpit.activeTab";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private KokpitUserAccess _access = KokpitUserAccess.None;
+    private KokpitSnapshot? _snapshot;
+    private string? _loadError;
+    private IReadOnlyList<KokpitTab> _tabs = [];
+    private bool _accessResolved;
+    private bool _tabRestored;
+    private int _activeIndex;
+
+    /// <summary>Cross-filter of this page; shared with every tab (CascadingValue) and shown in the filter bar.</summary>
+    private readonly KokpitFilterState _filters = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _filters.Changed += OnFiltersChanged;
+
+        _access = await KokpitAccess.ResolveAsync(_global, _db, AuthenticationState);
+        _tabs = AllTabs.Where(t => !t.RequiresHr || _access.CanSeeHr).ToList();
+        _accessResolved = true;
+
+        if (!_access.CanView)
+        {
+            Logger.LogWarning("Kokpit access denied for {User}", _access.UserCode ?? "(unknown)");
+            return;
+        }
+
+        // Data is loaded only after access is confirmed; the snapshot is shared by all users (KokpitDataService).
+        try
+        {
+            _snapshot = await KokpitDataService.GetSnapshotAsync(_db);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Kokpit data could not be loaded.");
+            _loadError = "Veritabanından veri alınamadı. Lütfen daha sonra tekrar deneyin.";
+        }
+    }
+
+    // Redirect and browser storage both happen after the first interactive render:
+    // NavigateTo during prerendering throws NavigationException by design, which stops the debugger.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_accessResolved) return;
+
+        if (!_access.CanView)
+        {
+            Navigation.NavigateTo(KokpitSettings.AccessDeniedRoute, replace: true);
+            return;
+        }
+
+        if (_tabRestored) return;
+
+        try
+        {
+            var stored = await LocalStorage.GetAsync<string>(ActiveTabStorageKey);
+            var index = stored.Success ? _tabs.ToList().FindIndex(t => t.Key == stored.Value) : -1;
+            _activeIndex = index >= 0 ? index : 0; // a remembered tab the user can no longer see → first tab
+        }
+        catch (Exception ex)
+        {
+            // Storage unavailable (private window, cleared keys, data-protection key change): start on the first tab.
+            Logger.LogDebug(ex, "Could not read the remembered Kokpit tab.");
+        }
+
+        _tabRestored = true;
+        StateHasChanged();
+    }
+
+    private async Task OnActiveTabChanged(int index)
+    {
+        _activeIndex = index;
+        try
+        {
+            await LocalStorage.SetAsync(ActiveTabStorageKey, _tabs[index].Key);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not store the active Kokpit tab.");
+        }
+    }
+
+    // ---------- filter bar (AY: aktif filtreler chip olarak) ----------
+
+    private RenderFragment FilterBar => __builder =>
+    {
+        <div class="filter-bar" role="region" aria-label="Aktif filtreler">
+            <span class="filter-title">Filtre</span>
+            @if (_filters.HasAny)
+            {
+                @foreach (var (dimension, value) in _filters.Active.ToList())
+                {
+                    <button type="button" class="chip" title="Filtreyi kaldır"
+                            @onclick="() => _filters.Remove(dimension, value)">
+                        <span class="chip-dim">@KokpitDimensions.Label(dimension):</span> @value <span class="chip-x" aria-hidden="true">×</span>
+                    </button>
+                }
+                <DxButton Text="Filtreleri temizle" CssClass="filter-clear"
+                          RenderStyle="ButtonRenderStyle.Secondary" RenderStyleMode="ButtonRenderStyleMode.Text"
+                          Click="() => _filters.Clear()" />
+            }
+            else
+            {
+                <span class="filter-empty">Yok — grafiklere tıklayarak filtreleyin</span>
+            }
+            @* DX-API: DxCheckBox<bool> Checked / CheckedChanged. *@
+            <DxCheckBox T="bool" CssClass="filter-multi" Checked="@_filters.MultiSelect"
+                        CheckedChanged="@((bool value) => _filters.SetMultiSelect(value))">Çoklu seçim</DxCheckBox>
+        </div>
+    };
+
+    private void OnFiltersChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => _filters.Changed -= OnFiltersChanged;
+}
